@@ -1,7 +1,5 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { faker } from '@faker-js/faker';
-import { usePosts, PostProvider } from './PostContext';
-// import Test from './Test';
 
 function createRandomPost() {
   return {
@@ -11,7 +9,30 @@ function createRandomPost() {
 }
 
 function App() {
+  const [posts, setPosts] = useState(() =>
+    Array.from({ length: 30 }, () => createRandomPost())
+  );
+  const [searchQuery, setSearchQuery] = useState('');
   const [isFakeDark, setIsFakeDark] = useState(false);
+
+  // Derived state. These are the posts that will actually be displayed
+  const searchedPosts =
+    searchQuery.length > 0
+      ? posts.filter((post) =>
+          `${post.title} ${post.body}`
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase())
+        )
+      : posts;
+
+  // useCallback自体がコストが高い。今回のように子コンポーネントのレンダリングが重い場合に、propsに渡す関数をメモ化する。
+  const handleAddPost = useCallback((post) => {
+    setPosts((posts) => [post, ...posts]);
+  }, []);
+
+  function handleClearPosts() {
+    setPosts([]);
+  }
 
   // Whenever `isFakeDark` changes, we toggle the `fake-dark-mode` class on the HTML element (see in "Elements" dev tool).
   useEffect(
@@ -21,6 +42,15 @@ function App() {
     [isFakeDark]
   );
 
+  // 再レンダリングすると値の変更がなくとも、objectは別のobjectになる。(等価ではない。)
+  // useMemoでobjectをメモ化することで、同じobjectとしてキャッシュできる。
+  const archiveOption = useMemo(() => {
+    return {
+      show: false,
+      title: `archive title ${posts.length}`,
+    };
+  }, [posts.length]);
+
   return (
     <section>
       <button
@@ -29,36 +59,43 @@ function App() {
       >
         {isFakeDark ? '☀️' : '🌙'}
       </button>
-      <PostProvider>
-        <Header />
-        <Main />
-        <Archive />
-        <Footer />
-      </PostProvider>
+
+      <Header
+        posts={searchedPosts}
+        onClearPosts={handleClearPosts}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+      />
+      <Main posts={searchedPosts} onAddPost={handleAddPost} />
+      <Archive
+        archiveOption={archiveOption}
+        onAddPost={handleAddPost}
+        setIsFakeDark={setIsFakeDark}
+      />
+      <Footer />
     </section>
   );
 }
 
-function Header() {
-  // 3) consuming context value
-  const { onClearPosts } = usePosts();
-
+function Header({ posts, onClearPosts, searchQuery, setSearchQuery }) {
   return (
     <header>
       <h1>
         <span>⚛️</span>The Atomic Blog
       </h1>
       <div>
-        <Results />
-        <SearchPosts />
+        <Results posts={posts} />
+        <SearchPosts
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+        />
         <button onClick={onClearPosts}>Clear posts</button>
       </div>
     </header>
   );
 }
 
-function SearchPosts() {
-  const { searchQuery, setSearchQuery } = usePosts();
+function SearchPosts({ searchQuery, setSearchQuery }) {
   return (
     <input
       value={searchQuery}
@@ -68,21 +105,20 @@ function SearchPosts() {
   );
 }
 
-function Results() {
-  const { posts } = usePosts();
+function Results({ posts }) {
   return <p>🚀 {posts.length} atomic posts found</p>;
 }
 
-const Main = memo(function Main() {
+function Main({ posts, onAddPost }) {
   return (
     <main>
-      <FormAddPost />
-      <Posts />
+      <FormAddPost onAddPost={onAddPost} />
+      <Posts posts={posts} />
     </main>
   );
-});
-function Posts() {
-  const { posts } = usePosts();
+}
+
+function Posts({ posts }) {
   return (
     <section>
       <List posts={posts} />
@@ -90,8 +126,7 @@ function Posts() {
   );
 }
 
-function FormAddPost() {
-  const { onAddPost } = usePosts();
+function FormAddPost({ onAddPost }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
 
@@ -122,34 +157,37 @@ function FormAddPost() {
 
 function List({ posts }) {
   return (
-    <>
-      <ul>
-        {posts.map((post, i) => (
-          <li key={i}>
-            <h3>{post.title}</h3>
-            <p>{post.body}</p>
-          </li>
-        ))}
-      </ul>
-      {/* <Test /> */}
-    </>
+    <ul>
+      {posts.map((post, i) => (
+        <li key={i}>
+          <h3>{post.title}</h3>
+          <p>{post.body}</p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-function Archive() {
-  const { onAddPost } = usePosts();
+// memo化することで、props（shwo）の変更時だけ再レンダリングされる。
+// Appのstate変更で再レンダリングされない。
+// archiveOptionはuseMemo,onAddPostはuseCallbackでメモ化した。（propsのオブジェクトと関数が再レンダリングで変わらないように）
+// setIsFakeDarkはstateのsetterであり、別の仕組みで一意性が取れてるため、メモ化不要
+const Archive = memo(function Archive({
+  archiveOption,
+  onAddPost,
+  setIsFakeDark,
+}) {
   // Here we don't need the setter function. We're only using state to store these posts because the callback function passed into useState (which generates the posts) is only called once, on the initial render. So we use this trick as an optimization technique, because if we just used a regular variable, these posts would be re-created on every render. We could also move the posts outside the components, but I wanted to show you this trick 😉
-  const [posts] = useState(() => {
-    console.log('archive posts render');
+  const [posts] = useState(() =>
     // 💥 WARNING: This might make your computer slow! Try a smaller `length` first
-    return Array.from({ length: 100 }, () => createRandomPost());
-  });
+    Array.from({ length: 30000 }, () => createRandomPost())
+  );
 
-  const [showArchive, setShowArchive] = useState(false);
+  const [showArchive, setShowArchive] = useState(archiveOption.show);
 
   return (
     <aside>
-      <h2>Post archive</h2>
+      <h2>{archiveOption.title}</h2>
       <button onClick={() => setShowArchive((s) => !s)}>
         {showArchive ? 'Hide archive posts' : 'Show archive posts'}
       </button>
@@ -168,7 +206,7 @@ function Archive() {
       )}
     </aside>
   );
-}
+});
 
 function Footer() {
   return <footer>&copy; by The Atomic Blog ✌️</footer>;
