@@ -8,8 +8,8 @@ import SpinnerMini from '../../ui/SpinnerMini';
 import CabinTable from '../cabins/CabinTable';
 
 function LoginForm() {
-  const [email, setEmail] = useState('shuhasegawa0430@gmail.com');
-  const [password, setPassword] = useState('mozukusu');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const { login, isLoading } = useLogin();
 
